@@ -62,6 +62,10 @@ function renderShell(content) {
 }
 
 function renderAdminNavigation() {
+  {
+  const items = [['dashboard', 'Dashboard (KPIs / IEV)'], ['routes', 'Gesti\u00f3n de viajes'], ['alerts', 'Alertas'], ['fleet', 'Mantenimiento de Flota']];
+  return `<div class="nav-label">MenÃº principal</div><nav class="nav">${items.map(([id, label]) => `<button class="${state.page === id ? 'active' : ''}" data-page="${id}">${label}</button>`).join('')}</nav>`;
+  }
   const items = [['dashboard', '▦', 'Resumen'], ['routes', '⌁', 'Recorridos'], ['fleet', '▣', 'Vehículos'], ['drivers', '♙', 'Choferes']];
   return `<div class="nav-label">Menú principal</div><nav class="nav">${items.map(([id, icon, label]) => `<button class="${state.page === id ? 'active' : ''}" data-page="${id}"><span>${icon}</span>${label}</button>`).join('')}</nav>`;
 }
@@ -78,6 +82,12 @@ function render() {
   }
   const content = state.role === 'admin' ? renderAdminView(state.page) : renderDriverView(state.page, state);
   renderShell(content);
+  if (state.role === 'admin') {
+    const crumb = document.querySelector('.crumb');
+    const topActions = document.querySelector('.top-actions');
+    if (crumb) crumb.innerHTML = '<b>Panel Gerencial</b><button class="period-filter">🏆 Últimos 30 días ▾</button>';
+    if (topActions) topActions.innerHTML = '<div class="admin-profile"><div class="admin-profile-avatar">♙</div><div><b>Juan Pablo Zampa</b><small>Admin</small></div></div>';
+  }
   if (state.role === 'driver') {
     const logout = document.createElement('button');
     logout.className = 'mobile-logout';
