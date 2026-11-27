@@ -1,6 +1,7 @@
 import { renderAdminView } from './roles/administrador/index.js';
 import { renderDriverView } from './roles/chofer/index.js';
 import { renderAiModal } from './modulos/ia/index.js';
+import { addViaje, addComprobante, cancelarViaje, finalizarViaje, findViaje } from './data/store.js';
 
 const app = document.querySelector('#app');
 const toastElement = document.querySelector('#toast');
@@ -14,6 +15,10 @@ const state = {
   checks: [true, false, false],
   toastTimer: null,
   aiMessages: [],
+  receiptLoaded: false,
+  profileMenuOpen: false,
+  selectedTripId: null,
+  alertFilter: 'all',
 };
 
 function renderRoleSelection() {
@@ -58,7 +63,7 @@ function renderShell(content) {
     <div class="brand"><div class="brand-mark">JP</div><div><strong>Transporte JP</strong><span>Zampa · gestión operativa</span></div></div>
     <div class="role-chip"><span>Vista actual</span><b>${admin ? 'Administrador' : 'Chofer'}</b></div>${admin ? renderAdminNavigation() : ''}
     <div class="sidebar-bottom"><div class="user"><div class="avatar">${admin ? 'MR' : 'JG'}</div><div><b>${admin ? 'María Rodríguez' : 'Juan García'}</b><small>${admin ? 'Administradora' : 'Chofer'}</small></div><button class="logout" data-action="logout">↪</button></div></div>
-  </aside><main class="main"><header class="topbar"><div class="crumb">Inicio <span> / </span> <b>${admin ? 'Resumen' : driverPageLabel()}</b></div><div class="top-actions"><button class="icon-btn" data-action="notifications">♢<i class="dot"></i></button>${admin ? '<div class="avatar">MR</div>' : ''}</div></header><section class="content">${content}</section></main></div>`;
+  </aside><main class="main"><header class="topbar"><div class="crumb">Inicio <span> / </span> <b>${admin ? 'Resumen' : driverPageLabel()}</b></div><div class="top-actions"><button class="icon-btn" data-action="notifications">♢<i class="dot"></i></button>${admin ? '<div class="avatar">MR</div>' : '<button class="top-logout" data-action="logout">Cerrar sesión</button>'}</div></header><section class="content">${content}</section></main></div>`;
 }
 
 function renderAdminNavigation() {
@@ -80,7 +85,7 @@ function render() {
     state.role ? renderLogin() : renderRoleSelection();
     return;
   }
-  const content = state.role === 'admin' ? renderAdminView(state.page) : renderDriverView(state.page, state);
+  const content = state.role === 'admin' ? renderAdminView(state.page, state) : renderDriverView(state.page, state);
   renderShell(content);
   if (state.role === 'admin') {
     const crumb = document.querySelector('.crumb');
@@ -105,18 +110,42 @@ function showToast(message) {
   state.toastTimer = setTimeout(() => toastElement.classList.remove('show'), 2600);
 }
 
-function renderModal() {
-  if (state.modal === 'ai') return renderAiModal(state.aiMessages, state.role);
-  if (state.modal === 'notifications') return `<div class="modal-backdrop"><div class="modal"><button class="modal-close" data-action="close-modal">×</button><h2>Notificaciones</h2><p>Tenés 3 avisos pendientes de revisar.</p><div class="vehicle-row"><div class="metric-icon red-icon">!</div><div class="vehicle-info"><b>Vehículo JP-021 requiere atención</b><small>Service programado para mañana</small></div></div><div class="vehicle-row"><div class="metric-icon amber-icon">!</div><div class="vehicle-info"><b>Recorrido RP-1044 demorado</b><small>Actualización hace 7 minutos</small></div></div></div></div>`;
-  return `<div class="modal-backdrop"><div class="modal"><button class="modal-close" data-action="close-modal">×</button><h2>${state.modal === 'incident' ? 'Reportar un incidente' : 'Nuevo recorrido'}</h2><p>${state.modal === 'incident' ? 'La información será enviada al administrador.' : 'Completá los datos para asignar un nuevo recorrido.'}</p><div class="form-grid"><div class="field"><label>Tipo</label><select><option>Demora en ruta</option><option>Falla mecánica</option><option>Accidente</option></select></div><div class="field"><label>Recorrido</label><input placeholder="RP-1042"></div><div class="field full"><label>Comentario</label><textarea placeholder="Escribí una breve descripción..."></textarea></div></div><div class="modal-actions"><button class="secondary" data-action="close-modal">Cancelar</button><button class="primary" data-action="save-modal">Guardar información</button></div></div></div>`;
+function toggleProfileMenu() {
+  const topActions = document.querySelector('.top-actions');
+  if (!topActions || state.role !== 'admin') return;
+  state.profileMenuOpen = !state.profileMenuOpen;
+  const menu = topActions.querySelector('.profile-menu');
+  if (state.profileMenuOpen && !menu) topActions.insertAdjacentHTML('beforeend', '<div class="profile-menu"><div class="profile-menu-user"><b>Juan Pablo Zampa</b><small>Admin</small></div><button data-action="logout">Cerrar sesión</button></div>');
+  if (!state.profileMenuOpen && menu) menu.remove();
 }
 
-function handleAction(action) {
+function updateTripEstimate(form) {
+  const estimate = form.querySelector('.trip-estimate');
+  if (!estimate) return;
+  const complete = [...form.querySelectorAll('[required]')].every(input => input.value.trim());
+  estimate.classList.toggle('is-hidden', !complete);
+}
+
+function renderModal() {
+  if (state.modal === 'ai') return renderAiModal(state.aiMessages, state.role);
+  if (state.modal === 'notifications') return `<div class="modal-backdrop"><div class="modal notification-modal"><button class="modal-close" data-action="close-modal">×</button><div class="notification-heading"><p class="eyebrow">Centro de avisos</p><h2>Mis Notificaciones</h2><p>Información importante para tu jornada.</p></div><div class="notification-list"><article class="notification-card notification-danger"><div><b>Comprobante rechazado</b><p>El comprobante de combustible no pudo procesarse por datos incompletos. Revisalo manualmente.</p></div><span>Urgente</span></article><article class="notification-card notification-warning"><div><b>Viaje pendiente de inicio</b><p>Tenés el viaje V-1043 asignado y aún espera tu confirmación de inicio.</p></div><span>Preventiva</span></article><article class="notification-card notification-info"><div><b>Asignación de viaje</b><p>Nuevo viaje asignado: #103 · Buenos Aires.</p></div><span>Informativa</span></article></div></div></div>`;
+  if (state.modal === 'receipt') return `<div class="modal-backdrop"><form class="modal receipt-modal" data-receipt-form><button type="button" class="modal-close" data-action="close-modal">×</button><div class="receipt-heading"><p class="eyebrow">Comprobante de gastos</p><h2>Cargar comprobante</h2><p>Asociá el ticket al viaje en curso.</p></div><button type="button" class="receipt-photo" data-action="simulate-photo">▣ Tomar foto del ticket</button><div class="ocr-box"><b>✦ Validación inteligente (OCR)</b><small>Datos extraídos automáticamente de la imagen</small><div class="form-grid"><div class="field"><label>TIPO DE COMPROBANTE</label><input value="Factura E (Combustible)"></div><div class="field"><label>PROVEEDOR / CUIT</label><input value="YPF Autopista (CUIT 30-54688997-9)"></div><div class="field"><label>FECHA DE EMISIÓN</label><input type="date" value="2026-11-27"></div><div class="field"><label>MONTO TOTAL ($)</label><input name="monto" type="number" value="45800" required></div><div class="field full"><label>ASOCIAR A VIAJE</label><input value="Viaje #1042 · En curso (Puerto San Martín)" disabled></div></div></div><div class="modal-actions"><button type="button" class="secondary" data-action="close-modal">Volver</button><button type="submit" class="primary">Confirmar comprobante</button></div></form></div>`;
+  if (state.modal === 'new-trip') return `<div class="modal-backdrop"><form class="modal trip-form-modal" data-trip-form><button type="button" class="modal-close" data-action="close-modal">×</button><div class="trip-modal-heading"><div><p class="eyebrow">Gestión de viajes</p><h2>Nuevo viaje</h2><p>Completá los datos operativos para planificar el viaje.</p></div></div><div class="trip-form-section"><h3>Datos operativos del viaje</h3><div class="form-grid"><div class="field"><label>ORIGEN</label><input name="origen" placeholder="Rosario, Santa Fe" required></div><div class="field"><label>DESTINO</label><input name="destino" placeholder="Puerto San Martín" required></div><div class="field"><label>CAMIÓN ASIGNADO</label><input name="camion" placeholder="AB123CD (Scania R450)" required></div><div class="field"><label>CHOFER</label><input name="chofer" placeholder="Juan García" required></div><div class="field"><label>CLIENTE / ACOPIADOR</label><input name="cliente" placeholder="ACA Timbúes" required></div><div class="field"><label>TARIFA ACORDADA ($)</label><input name="tarifa" type="number" placeholder="850000" required></div><div class="field"><label>DISTANCIA ESTIMADA (KM)</label><input name="distancia" type="number" placeholder="65" required></div><div class="field"><label>FECHA DE SALIDA</label><input name="fecha" type="date" required></div></div></div><div class="trip-estimate is-hidden"><b>✦ Estimación inteligente del viaje</b><p>Rentabilidad proyectada: <strong>+$210.000</strong> <small>(Tarifa - costo estimado de combustible y viáticos)</small></p><p>Rendimiento esperado: <strong>Óptimo</strong> <small>(Basado en consumo histórico de la unidad)</small></p><small>Nota: el Índice de Eficiencia de Viaje (IEV) oficial se calculará automáticamente en estado finalizado.</small></div><div class="modal-actions"><button type="button" class="secondary" data-action="close-modal">Cancelar</button><button type="submit" class="primary">Guardar viaje</button></div></form></div>`;
+  if (state.modal === 'cancel-trip') return `<div class="modal-backdrop"><div class="modal confirm-modal"><button class="modal-close" data-action="close-modal">×</button><div class="confirm-icon">!</div><h2>¿Cancelar viaje?</h2><p>El viaje ${state.selectedTripId} se marcará como cancelado. Esta acción se puede revisar luego desde el listado operativo.</p><div class="modal-actions"><button class="secondary" data-action="close-modal">Volver</button><button class="danger" data-action="confirm-cancel-trip">Sí, cancelar viaje</button></div></div></div>`;
+  if (state.modal === 'finalize-trip') { const viaje = findViaje(state.selectedTripId); return `<div class="modal-backdrop"><form class="modal finalize-modal" data-finalize-form><button type="button" class="modal-close" data-action="close-modal">×</button><div class="trip-modal-heading"><p class="eyebrow">Gestión de viajes / Finalizar viaje</p><h2>Finalizar viaje (${viaje?.id || state.selectedTripId})</h2><p>Ingresá los valores reales para calcular el IEV y la liquidación.</p></div><div class="trip-form-section"><h3>Datos de cierre y rendición</h3><div class="form-grid"><div class="field"><label>CONSUMO REAL DE COMBUSTIBLE (LTS)</label><input name="combustible" type="number" step="0.1" value="185.5" required></div><div class="field"><label>DISTANCIA REAL RECORRIDA (KM)</label><input name="distanciaReal" type="number" step="0.1" value="162" required></div><div class="field"><label>FECHA Y HORA DE FINALIZACIÓN</label><input name="finalizadoEn" type="datetime-local" required></div><div class="field"><label>RUTA ASOCIADA / CHOFER</label><input value="${viaje?.ruta || ''} · ${viaje?.chofer || 'Sin asignar'}" disabled></div></div></div><div class="trip-estimate visible"><b>✦ Estimación automática al finalizar</b><p>El sistema calculará el IEV comparando consumo y distancia real contra lo estimado.</p><p>La liquidación pendiente se generará para el chofer sobre el neto de la tarifa.</p></div><div class="modal-actions"><button type="button" class="secondary" data-action="close-modal">Cancelar</button><button type="submit" class="primary">Confirmar cierre</button></div></form></div>`; }
+  return `<div class="modal-backdrop"><div class="modal"><button class="modal-close" data-action="close-modal">×</button><h2>Reportar un incidente</h2><p>La información será enviada al administrador.</p><div class="form-grid"><div class="field"><label>Tipo</label><select><option>Demora en ruta</option><option>Falla mecánica</option><option>Accidente</option></select></div><div class="field"><label>Viaje</label><input placeholder="V-1042"></div><div class="field full"><label>Comentario</label><textarea placeholder="Escribí una breve descripción..."></textarea></div></div><div class="modal-actions"><button class="secondary" data-action="close-modal">Cancelar</button><button class="primary" data-action="save-modal">Guardar información</button></div></div></div>`;
+}
+
+function handleAction(action, event) {
   if (action === 'back-to-roles') { state.role = null; render(); return; }
   if (action === 'logout') { state.authenticated = false; state.role = null; state.page = 'dashboard'; render(); showToast('Sesión cerrada'); return; }
   if (action === 'notifications') state.modal = 'notifications';
   if (action === 'new-trip' || action === 'incident') state.modal = action;
+  if (action === 'cancel-trip' || action === 'finalize-trip') { state.selectedTripId = event?.target?.dataset?.tripId || state.selectedTripId; state.modal = action; }
+  if (action === 'confirm-cancel-trip') { cancelarViaje(state.selectedTripId); state.modal = null; showToast('Viaje cancelado'); }
   if (action === 'ai-open') state.modal = 'ai';
+  if (action === 'upload-receipt') state.modal = 'receipt';
+  if (action === 'simulate-photo') showToast('Ticket capturado. Revisá los datos extraídos.');
   if (action === 'start-trip') { state.tripStarted = true; showToast('Recorrido iniciado. ¡Buen viaje, Juan!'); }
   if (action === 'finish-trip') { state.tripStarted = false; showToast('Recorrido finalizado y enviado a administración'); }
   if (action === 'save-modal') { state.modal = null; showToast('Información guardada correctamente'); }
@@ -125,15 +154,48 @@ function handleAction(action) {
 }
 
 document.addEventListener('click', (event) => {
+  if (event.target.closest('.admin-profile')) { toggleProfileMenu(); return; }
+  const alertFilter = event.target.closest('[data-alert-filter]');
+  if (alertFilter) { state.alertFilter = alertFilter.dataset.alertFilter; render(); return; }
   const roleButton = event.target.closest('[data-role]');
   const pageButton = event.target.closest('[data-page]');
   const actionButton = event.target.closest('[data-action]');
   if (roleButton) { state.role = roleButton.dataset.role; render(); return; }
   if (pageButton) { state.page = pageButton.dataset.page; render(); return; }
-  if (actionButton) handleAction(actionButton.dataset.action);
+  if (actionButton) handleAction(actionButton.dataset.action, event);
 });
 
 document.addEventListener('submit', (event) => {
+  if (event.target.matches('[data-receipt-form]')) {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    addComprobante({ viajeId: 'V-1042', importe: Number(formData.get('monto')), ocr: true });
+    state.receiptLoaded = true;
+    state.modal = null;
+    render();
+    showToast('Comprobante confirmado y asociado al viaje');
+    return;
+  }
+  if (event.target.matches('[data-finalize-form]')) {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    const combustible = Number(formData.get('combustible'));
+    const distanciaReal = Number(formData.get('distanciaReal'));
+    finalizarViaje(state.selectedTripId, { combustible, distanciaReal, finalizadoEn: formData.get('finalizadoEn'), iev: Math.max(0, Math.min(100, Math.round(100 - Math.abs(combustible - 180) - Math.abs(distanciaReal - 160) / 2))) });
+    state.modal = null;
+    render();
+    showToast('Viaje finalizado y cierre confirmado');
+    return;
+  }
+  if (event.target.matches('[data-trip-form]')) {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    addViaje({ ruta: `${formData.get('origen')} → ${formData.get('destino')}`, camion: formData.get('camion'), fecha: formData.get('fecha'), chofer: formData.get('chofer'), cliente: formData.get('cliente'), tarifa: Number(formData.get('tarifa')), distancia: Number(formData.get('distancia')) });
+    state.modal = null;
+    render();
+    showToast('Viaje guardado correctamente');
+    return;
+  }
   if (event.target.matches('[data-login-form]')) {
     event.preventDefault(); state.authenticated = true; state.page = state.role === 'admin' ? 'dashboard' : 'driver-home'; render(); showToast(`Sesión iniciada como ${state.role === 'admin' ? 'Administrador' : 'Chofer'}`);
   }
@@ -148,6 +210,11 @@ document.addEventListener('change', (event) => {
     state.checks[Number(event.target.dataset.check)] = event.target.checked;
     render();
   }
+});
+
+document.addEventListener('input', (event) => {
+  const form = event.target.closest('[data-trip-form]');
+  if (form) updateTripEstimate(form);
 });
 
 render();

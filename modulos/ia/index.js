@@ -7,7 +7,7 @@ export function renderAdminAiCard() {
 }
 
 export function renderAiModal(messages = [], role = 'driver') {
-  const greeting = role === 'admin' ? 'Hola María. Soy el asistente de JP Zampa. Puedo ayudarte a analizar alertas, recorridos y flota.' : 'Hola Juan. Soy el asistente de JP Zampa. ¿En qué puedo ayudarte con tu jornada?';
+  const greeting = role === 'admin' ? 'Hola Juan Pablo. Soy el asistente de JP Zampa. Puedo ayudarte a analizar alertas, viajes y flota.' : 'Hola Juan Pablo. Soy el asistente de JP Zampa. ¿En qué puedo ayudarte con tu jornada?';
   const conversation = messages.length ? messages.map(message => `<div class="ai-message ${message.from}">${message.text}</div>`).join('') : `<div class="ai-message ai">${greeting}</div>`;
   return `<div class="modal-backdrop"><div class="modal ai-modal"><button class="modal-close" data-action="close-modal">×</button><div class="ai-modal-heading"><div class="ai-badge">✦</div><div><h2>Asistente IA JP Zampa</h2><p>Respuesta orientativa para la operación.</p></div></div><div class="ai-chat">${conversation}</div><form data-ai-form class="ai-form"><input placeholder="Escribí tu consulta..." autocomplete="off"><button class="primary">Enviar</button></form></div></div>`;
 }
